@@ -38,7 +38,7 @@ A web-based explorer for Azure Service Bus topics and subscriptions. This tool a
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/sb-web-explorer.git
+   git clone https://github.com/karimasalam/sb-web-explorer.git
    cd sb-web-explorer
    ```
 
