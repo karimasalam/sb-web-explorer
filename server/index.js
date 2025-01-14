@@ -141,6 +141,7 @@ app.get('/api/topics/:topicName/subscriptions/:subscriptionName/messages', async
         const { page = 0, isDlq = false } = req.query;
         const pageSize = 100;
         const skip = parseInt(page) * pageSize;
+        const isDeadLetter = isDlq === 'true';
 
         // Get total message count first
         const adminClient = new ServiceBusAdministrationClient(serviceBusConnection);
@@ -152,9 +153,9 @@ app.get('/api/topics/:topicName/subscriptions/:subscriptionName/messages', async
         console.log('Runtime properties:', runtimeProperties);
         
         // Use activeMessageCount for active messages and deadLetterMessageCount for DLQ
-        const totalMessages = isDlq === 'true' 
-            ? runtimeProperties.deadLetterMessageCount 
-            : runtimeProperties.activeMessageCount;
+        const totalMessages = isDeadLetter
+            ? (runtimeProperties.deadLetterMessageCount || 0)
+            : (runtimeProperties.activeMessageCount || 0);
 
         // Calculate total pages
         const totalPages = Math.max(1, Math.ceil(totalMessages / pageSize));
@@ -163,7 +164,7 @@ app.get('/api/topics/:topicName/subscriptions/:subscriptionName/messages', async
         const client = new ServiceBusClient(serviceBusConnection);
         const receiver = client.createReceiver(topicName, subscriptionName, {
             receiveMode: "peekLock",
-            subQueueType: isDlq === 'true' ? "deadLetter" : undefined
+            subQueueType: isDeadLetter ? "deadLetter" : undefined
         });
 
         try {
@@ -173,10 +174,12 @@ app.get('/api/topics/:topicName/subscriptions/:subscriptionName/messages', async
                 pageSize,
                 totalMessages,
                 totalPages,
-                isDlq
+                isDlq: isDeadLetter
             });
 
             const messages = await receiver.peekMessages(pageSize, { skip });
+            console.log(`Retrieved ${messages.length} messages`);
+            
             const formattedMessages = messages.map(message => ({
                 messageId: message.messageId,
                 body: message.body,
@@ -257,56 +260,114 @@ app.delete('/api/topics/:topicName/subscriptions/:subscriptionName/messages', as
     }
 });
 
-// Resubmit messages to a subscription
+// Resubmit messages from DLQ
 app.post('/api/topics/:topicName/subscriptions/:subscriptionName/resubmit', async (req, res) => {
+    const { topicName, subscriptionName } = req.params;
+    const { messageIds, isDlq } = req.body;
+
     try {
-        const { topicName, subscriptionName } = req.params;
-        const { messageIds, isDlq = false } = req.body;
-
-        if (!serviceBusConnection) {
-            return res.status(400).json({ error: 'No connection string provided' });
-        }
-
         const client = new ServiceBusClient(serviceBusConnection);
-        const sender = client.createSender(topicName);
-        const receiver = client.createReceiver(topicName, subscriptionName, {
-            receiveMode: "peekLock",
-            subQueueType: isDlq === true ? "deadLetter" : undefined
+        const receiver = client.createReceiver(topicName, subscriptionName, { 
+            subQueueType: "deadLetter",
+            receiveMode: "peekLock"
         });
+        const sender = client.createSender(topicName);
 
+        let messages = [];
         try {
-            // Process messages in batches
-            for (let i = 0; i < messageIds.length; i += 20) {
-                const batch = messageIds.slice(i, i + 20);
-                const messages = await receiver.receiveMessages(batch.length, { maxWaitTimeInMs: 5000 });
-                
-                for (const message of messages) {
-                    if (batch.includes(message.messageId)) {
-                        // Create a new message with the same content and properties
-                        await sender.sendMessages({
-                            body: message.body,
-                            messageId: `resubmit-${message.messageId}`,
-                            correlationId: message.correlationId,
-                            subject: message.subject,
-                            contentType: message.contentType,
-                            applicationProperties: message.applicationProperties
-                        });
-
-                        // Complete the original message
-                        await receiver.completeMessage(message);
+            if (messageIds && messageIds.length > 0) {
+                // Resubmit specific messages
+                for (const messageId of messageIds) {
+                    const receivedMessages = await receiver.receiveMessages(1);
+                    if (receivedMessages.length > 0) {
+                        messages.push(receivedMessages[0]);
                     }
                 }
+            } else {
+                // Resubmit all messages
+                let batch;
+                do {
+                    batch = await receiver.receiveMessages(20);
+                    messages.push(...batch);
+                } while (batch.length === 20);
             }
+        } catch (error) {
+            console.error('Error receiving messages:', error);
+            throw new Error(`Failed to receive messages: ${error.message}`);
+        }
 
-            res.json({ success: true });
-        } finally {
-            await receiver.close();
-            await sender.close();
-            await client.close();
+        console.log(`Processing ${messages.length} messages for resubmit`);
+
+        const results = {
+            success: [],
+            failed: []
+        };
+
+        // Resubmit messages and delete from DLQ
+        for (const message of messages) {
+            try {
+                // Send to main queue
+                await sender.sendMessages({
+                    body: message.body,
+                    applicationProperties: message.applicationProperties,
+                    correlationId: message.correlationId,
+                    messageId: `resubmit-${message.messageId}`,
+                    contentType: message.contentType,
+                    subject: message.subject
+                });
+
+                // Complete (delete) from DLQ
+                await receiver.completeMessage(message);
+                console.log(`Successfully resubmitted and deleted message ${message.messageId}`);
+                results.success.push(message.messageId);
+            } catch (error) {
+                console.error(`Error processing message ${message.messageId}:`, error);
+                // Abandon the message if there was an error
+                await receiver.abandonMessage(message);
+                results.failed.push({
+                    messageId: message.messageId,
+                    error: error.message
+                });
+            }
+        }
+
+        await receiver.close();
+        await sender.close();
+
+        // Return appropriate status based on results
+        if (results.failed.length > 0) {
+            res.status(207).json({
+                success: false,
+                message: `${results.success.length} messages resubmitted, ${results.failed.length} failed`,
+                details: {
+                    successCount: results.success.length,
+                    failedCount: results.failed.length,
+                    successfulMessages: results.success,
+                    failedMessages: results.failed
+                }
+            });
+        } else if (results.success.length === 0) {
+            res.status(404).json({
+                success: false,
+                message: 'No messages found to resubmit'
+            });
+        } else {
+            res.json({
+                success: true,
+                message: `Successfully resubmitted ${results.success.length} messages`,
+                details: {
+                    successCount: results.success.length,
+                    successfulMessages: results.success
+                }
+            });
         }
     } catch (error) {
-        console.error('Error resubmitting messages:', error);
-        res.status(500).json({ error: error.message });
+        console.error('Error in resubmit operation:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message,
+            error: error.toString()
+        });
     }
 });
 

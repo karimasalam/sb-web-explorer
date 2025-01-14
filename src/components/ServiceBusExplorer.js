@@ -2,270 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import './ServiceBusExplorer.css';
-
-const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore, currentPage, totalPages, totalMessages, onRefresh }) => {
-  const [expandedMessages, setExpandedMessages] = useState(new Set());
-  const [selectedMessages, setSelectedMessages] = useState(new Set());
-  const [loading, setLoading] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isResubmitting, setIsResubmitting] = useState(false);
-
-  const toggleMessage = (messageId) => {
-    const newExpanded = new Set(expandedMessages);
-    if (newExpanded.has(messageId)) {
-      newExpanded.delete(messageId);
-    } else {
-      newExpanded.add(messageId);
-    }
-    setExpandedMessages(newExpanded);
-  };
-
-  const toggleMessageSelection = (messageId, event) => {
-    event.stopPropagation();
-    const newSelected = new Set(selectedMessages);
-    if (newSelected.has(messageId)) {
-      newSelected.delete(messageId);
-    } else {
-      newSelected.add(messageId);
-    }
-    setSelectedMessages(newSelected);
-  };
-
-  const handleScroll = async (e) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.target;
-    const scrolledToBottom = Math.abs(scrollHeight - scrollTop - clientHeight) < 1;
-    
-    if (scrolledToBottom && !loading && currentPage < totalPages - 1) {
-      setLoading(true);
-      try {
-        await onLoadMore(currentPage + 1);
-      } catch (error) {
-        console.error('Error loading more messages:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-  };
-
-  const clearMessages = async (selectedOnly = false) => {
-    if (!window.confirm(selectedOnly 
-      ? `Are you sure you want to delete ${selectedMessages.size} selected messages?` 
-      : 'Are you sure you want to clear all messages?')) {
-      return;
-    }
-
-    setIsDeleting(true);
-    const toastId = toast.loading(selectedOnly ? 'Deleting selected messages...' : 'Clearing all messages...');
-
-    try {
-      const response = await fetch(
-        `http://localhost:3001/api/topics/${topic.name}/subscriptions/${subscription.subscriptionName}/messages`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messageIds: selectedOnly ? Array.from(selectedMessages) : [],
-            isDlq
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to clear messages');
-      }
-
-      // Refresh the subscription details first
-      await onRefresh(topic.name, subscription.subscriptionName);
-      
-      // Show success toast
-      toast.update(toastId, {
-        render: selectedOnly 
-          ? `Successfully deleted ${selectedMessages.size} messages` 
-          : 'Successfully cleared all messages',
-        type: 'success',
-        isLoading: false,
-        autoClose: 3000
-      });
-
-      // Close the message pane
-      onClose();
-    } catch (error) {
-      console.error('Error clearing messages:', error);
-      toast.update(toastId, {
-        render: `Failed to clear messages: ${error.message}`,
-        type: 'error',
-        isLoading: false,
-        autoClose: 5000
-      });
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const resubmitMessages = async () => {
-    if (!window.confirm(`Are you sure you want to resubmit ${selectedMessages.size} selected messages?`)) {
-      return;
-    }
-
-    setIsResubmitting(true);
-    const toastId = toast.loading('Resubmitting selected messages...');
-
-    try {
-      const response = await fetch(
-        `http://localhost:3001/api/topics/${topic.name}/subscriptions/${subscription.subscriptionName}/resubmit`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messageIds: Array.from(selectedMessages),
-            isDlq
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to resubmit messages');
-      }
-
-      // Refresh the subscription details
-      await onRefresh(topic.name, subscription.subscriptionName);
-      
-      // Show success toast
-      toast.update(toastId, {
-        render: `Successfully resubmitted ${selectedMessages.size} messages`,
-        type: 'success',
-        isLoading: false,
-        autoClose: 3000
-      });
-
-      // Close the message pane
-      onClose();
-    } catch (error) {
-      console.error('Error resubmitting messages:', error);
-      toast.update(toastId, {
-        render: `Failed to resubmit messages: ${error.message}`,
-        type: 'error',
-        isLoading: false,
-        autoClose: 5000
-      });
-    } finally {
-      setIsResubmitting(false);
-    }
-  };
-
-  const formatMessageStats = () => {
-    const start = currentPage * 100 + 1;
-    const end = Math.min(start + messages.length - 1, totalMessages);
-    return `Showing ${start}-${end} of ${totalMessages} messages (Page ${currentPage + 1} of ${totalPages})`;
-  };
-
-  return (
-    <div className="message-pane">
-      <div className="message-pane-header">
-        <div>
-          <h3>{isDlq ? 'Dead Letter Queue Messages' : 'Active Messages'}</h3>
-          <div className="message-pane-subheader">
-            {topic.name}/{subscription.subscriptionName}
-          </div>
-          <div className="message-pane-stats">
-            {formatMessageStats()}
-          </div>
-        </div>
-        <div className="message-pane-actions">
-          {selectedMessages.size > 0 && (
-            <>
-              <button 
-                onClick={() => clearMessages(true)}
-                disabled={isDeleting || isResubmitting}
-                className="delete-button"
-              >
-                {isDeleting ? 'Deleting...' : `Delete Selected (${selectedMessages.size})`}
-              </button>
-              <button 
-                onClick={resubmitMessages}
-                disabled={isDeleting || isResubmitting}
-                className="resubmit-button"
-              >
-                {isResubmitting ? 'Resubmitting...' : `Resubmit Selected (${selectedMessages.size})`}
-              </button>
-            </>
-          )}
-          <button 
-            onClick={() => clearMessages(false)}
-            disabled={isDeleting || isResubmitting}
-            className="clear-button"
-          >
-            {isDeleting ? 'Clearing...' : 'Clear All'}
-          </button>
-          <button onClick={onClose} className="close-button">×</button>
-        </div>
-      </div>
-      <div className="message-list" onScroll={handleScroll}>
-        {messages.length === 0 ? (
-          <p className="no-messages">No messages found</p>
-        ) : (
-          <>
-            {messages.map((msg) => (
-              <div key={`${msg.messageId}-${msg.sequenceNumber}`} className="message-item">
-                <div 
-                  className="message-header"
-                  onClick={() => toggleMessage(msg.messageId)}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedMessages.has(msg.messageId)}
-                    onChange={(e) => toggleMessageSelection(msg.messageId, e)}
-                    className="message-checkbox"
-                  />
-                  <span className="message-id">ID: {msg.messageId}</span>
-                  <span className="expand-icon">
-                    {expandedMessages.has(msg.messageId) ? '▼' : '▶'}
-                  </span>
-                </div>
-                {expandedMessages.has(msg.messageId) && (
-                  <div className="message-details">
-                    <div className="message-time">
-                      Enqueued: {new Date(msg.enqueuedTime).toLocaleString()}
-                    </div>
-                    {Object.keys(msg.properties || {}).length > 0 && (
-                      <div className="message-properties">
-                        <div className="properties-header">Properties:</div>
-                        {Object.entries(msg.properties).map(([key, value]) => (
-                          <div key={key} className="property-item">
-                            <span className="property-key">{key}:</span>
-                            <span className="property-value">{JSON.stringify(value)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="message-body-container">
-                      <div className="body-header">Body:</div>
-                      <pre className="message-body">{JSON.stringify(msg.body, null, 2)}</pre>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-            {loading && (
-              <div className="loading-more">
-                Loading more messages... ({messages.length} of {totalMessages} loaded)
-              </div>
-            )}
-            {!loading && currentPage < totalPages - 1 && (
-              <div className="scroll-hint">
-                Scroll down to load more messages ({messages.length} of {totalMessages} loaded)
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-};
+import MessagePane from './MessagePane';
 
 const SubscriptionActions = ({ topic, subscription, onViewMessages, onViewDlq, onRefresh }) => {
   const [loading, setLoading] = useState(false);
@@ -275,10 +12,11 @@ const SubscriptionActions = ({ topic, subscription, onViewMessages, onViewDlq, o
   const [totalPages, setTotalPages] = useState(0);
   const [totalMessages, setTotalMessages] = useState(0);
 
-  const fetchMessages = async (page = 0, isNewFetch = true) => {
+  const fetchMessages = async (page = 0, isNewFetch = true, isDeadLetter = isDlq) => {
     try {
+      console.log('Fetching messages:', { topic: topic.name, subscription: subscription.subscriptionName, isDlq: isDeadLetter, page });
       const response = await fetch(
-        `http://localhost:3001/api/topics/${topic.name}/subscriptions/${subscription.subscriptionName}/messages?page=${page}&isDlq=${isDlq}`
+        `http://localhost:3001/api/topics/${topic.name}/subscriptions/${subscription.subscriptionName}/messages?page=${page}&isDlq=${isDeadLetter}`
       );
       const data = await response.json();
       
@@ -292,6 +30,7 @@ const SubscriptionActions = ({ topic, subscription, onViewMessages, onViewDlq, o
       setTotalMessages(data.totalMessages);
     } catch (error) {
       console.error('Error fetching messages:', error);
+      toast.error('Failed to fetch messages. Please try again.');
     }
   };
 
@@ -300,9 +39,12 @@ const SubscriptionActions = ({ topic, subscription, onViewMessages, onViewDlq, o
     try {
       switch (action) {
         case 'messages':
+          setIsDlq(false);
+          await fetchMessages(0, true, false);
+          break;
         case 'dlq':
-          setIsDlq(action === 'dlq');
-          await fetchMessages(0, true);
+          setIsDlq(true);
+          await fetchMessages(0, true, true);
           break;
         case 'refresh':
           const detailsResponse = await fetch(
@@ -311,9 +53,12 @@ const SubscriptionActions = ({ topic, subscription, onViewMessages, onViewDlq, o
           const details = await detailsResponse.json();
           onRefresh(topic.name, subscription.subscriptionName, details);
           break;
+        default:
+          break;
       }
     } catch (error) {
       console.error('Error performing action:', error);
+      toast.error('An error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -368,6 +113,18 @@ const ServiceBusExplorer = ({ connectionString }) => {
   const [error, setError] = useState(null);
   const [expandedSubscriptions, setExpandedSubscriptions] = useState(new Set());
   const [selectedSubscription, setSelectedSubscription] = useState(null);
+  const [expandedSections, setExpandedSections] = useState({
+    queues: true,
+    topics: true
+  });
+  const [expandedTopicSubscriptions, setExpandedTopicSubscriptions] = useState({});
+
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
 
   const toggleSubscription = (topicName, subscriptionName) => {
     const key = `${topicName}:${subscriptionName}`;
@@ -378,6 +135,13 @@ const ServiceBusExplorer = ({ connectionString }) => {
       newExpanded.add(key);
     }
     setExpandedSubscriptions(newExpanded);
+  };
+
+  const toggleTopicSubscriptions = (topicName) => {
+    setExpandedTopicSubscriptions(prev => ({
+      ...prev,
+      [topicName]: !prev[topicName]
+    }));
   };
 
   const handleSubscriptionRefresh = async (topicName, subscriptionName) => {
@@ -426,13 +190,22 @@ const ServiceBusExplorer = ({ connectionString }) => {
 
   const fetchMessages = async (topicName, subscriptionName, isDlq = false, page = 0) => {
     try {
+      console.log('Fetching messages:', { topicName, subscriptionName, isDlq, page });
       const response = await fetch(
         `http://localhost:3001/api/topics/${topicName}/subscriptions/${subscriptionName}/messages?page=${page}&isDlq=${isDlq}`
       );
+      
       if (!response.ok) {
         throw new Error('Failed to fetch messages');
       }
+      
       const data = await response.json();
+      console.log('Received messages:', data);
+      
+      if (!data.messages) {
+        throw new Error('No messages data received');
+      }
+      
       return {
         messages: data.messages,
         totalMessages: data.totalMessages,
@@ -448,21 +221,42 @@ const ServiceBusExplorer = ({ connectionString }) => {
 
   const handleViewMessages = async (topic, subscription, isDlq = false) => {
     try {
-      const messageData = await fetchMessages(topic.name, subscription.subscriptionName, isDlq);
+      // Set initial state with null messages to indicate loading
       setSelectedSubscription({
         topic,
         subscription,
         isDlq,
-        ...messageData
+        messages: null,
+        totalMessages: 0,
+        currentPage: 0,
+        totalPages: 0,
+        hasMore: false
+      });
+      
+      console.log('Loading messages for:', { topic: topic.name, subscription: subscription.subscriptionName, isDlq });
+      const messageData = await fetchMessages(topic.name, subscription.subscriptionName, isDlq);
+      console.log('Loaded messages:', messageData);
+      
+      setSelectedSubscription(prev => {
+        // Check if the component is still mounted and subscription is still selected
+        if (!prev) return null;
+        return {
+          ...prev,
+          ...messageData,
+          messages: messageData.messages
+        };
       });
     } catch (error) {
       console.error('Error viewing messages:', error);
+      toast.error('Failed to load messages. Please try again.');
+      setSelectedSubscription(null);
     }
   };
 
   const handleLoadMore = async (page) => {
-    if (!selectedSubscription) return;
+    if (!selectedSubscription || !selectedSubscription.messages) return;
     
+    setLoading(true);
     try {
       const messageData = await fetchMessages(
         selectedSubscription.topic.name,
@@ -471,14 +265,20 @@ const ServiceBusExplorer = ({ connectionString }) => {
         page
       );
       
-      setSelectedSubscription(prev => ({
-        ...prev,
-        messages: [...prev.messages, ...messageData.messages],
-        currentPage: messageData.currentPage,
-        hasMore: messageData.hasMore
-      }));
+      setSelectedSubscription(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          messages: [...prev.messages, ...(messageData.messages || [])],
+          currentPage: messageData.currentPage,
+          hasMore: messageData.hasMore
+        };
+      });
     } catch (error) {
       console.error('Error loading more messages:', error);
+      toast.error('Failed to load more messages. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -549,61 +349,72 @@ const ServiceBusExplorer = ({ connectionString }) => {
         <h3>Service Bus Explorer</h3>
         
         <div className="entity-section">
-          <h4>Queues ({entities.queues.length})</h4>
-          <ul className="entity-list">
-            {entities.queues.map((queue) => (
-              <li key={queue.name} className="entity-item">
-                <div className="queue-info">
-                  <span className="entity-name">📬 {queue.name}</span>
-                  <span className="message-count">
-                    Active: {queue.activeMessageCount || 0} | DLQ: {queue.dlqMessageCount || 0} | Total: {queue.messageCount || 0}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <h4 onClick={() => toggleSection('queues')} style={{ cursor: 'pointer' }}>
+            {expandedSections.queues ? '▼' : '▶'} Queues ({entities.queues.length})
+          </h4>
+          {expandedSections.queues && (
+            <ul className="entity-list">
+              {entities.queues.map((queue) => (
+                <li key={queue.name} className="entity-item">
+                  <div className="queue-info">
+                    <span className="entity-name">📬 {queue.name}</span>
+                    <span className="message-count">
+                      Active: {queue.activeMessageCount || 0} | DLQ: {queue.dlqMessageCount || 0} | Total: {queue.messageCount || 0}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="entity-section">
-          <h4>Topics ({entities.topics.length})</h4>
-          <ul className="entity-list">
-            {entities.topics.map((topic) => (
-              <li key={topic.name} className="entity-item">
-                <div className="topic-name">📢 {topic.name}</div>
-                {Array.isArray(topic.subscriptions) && topic.subscriptions.length > 0 && (
-                  <ul className="subscription-list">
-                    {topic.subscriptions.map((sub) => {
-                      const isExpanded = expandedSubscriptions.has(`${topic.name}:${sub.subscriptionName}`);
-                      return (
-                        <li key={sub.subscriptionName} className="subscription-item">
-                          <div 
-                            className="subscription-header"
-                            onClick={() => toggleSubscription(topic.name, sub.subscriptionName)}
-                          >
-                            <span className="subscription-name">
-                              📥 {sub.subscriptionName}
-                            </span>
-                            <span className="message-count">
-                              Active: {sub.activeMessageCount || 0} | DLQ: {sub.dlqMessageCount || 0} | Total: {sub.messageCount || 0}
-                            </span>
-                          </div>
-                          {isExpanded && (
-                            <SubscriptionActions 
-                              topic={topic}
-                              subscription={sub}
-                              onViewMessages={() => handleViewMessages(topic, sub)}
-                              onViewDlq={() => handleViewMessages(topic, sub, true)}
-                              onRefresh={() => handleSubscriptionRefresh(topic.name, sub.subscriptionName)}
-                            />
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
+          <h4 onClick={() => toggleSection('topics')} style={{ cursor: 'pointer' }}>
+            {expandedSections.topics ? '▼' : '▶'} Topics ({entities.topics.length})
+          </h4>
+          {expandedSections.topics && (
+            <ul className="entity-list">
+              {entities.topics.map((topic) => (
+                <li key={topic.name} className="entity-item">
+                  <div className="topic-name" onClick={() => toggleTopicSubscriptions(topic.name)} style={{ cursor: 'pointer' }}>
+                    <span>{expandedTopicSubscriptions[topic.name] ? '▼' : '▶'}</span>
+                    <span>📢 {topic.name}</span>
+                  </div>
+                  {expandedTopicSubscriptions[topic.name] && Array.isArray(topic.subscriptions) && topic.subscriptions.length > 0 && (
+                    <ul className="subscription-list">
+                      {topic.subscriptions.map((sub) => {
+                        const isExpanded = expandedSubscriptions.has(`${topic.name}:${sub.subscriptionName}`);
+                        return (
+                          <li key={sub.subscriptionName} className="subscription-item">
+                            <div 
+                              className="subscription-header"
+                              onClick={() => toggleSubscription(topic.name, sub.subscriptionName)}
+                            >
+                              <span className="subscription-name">
+                                📥 {sub.subscriptionName}
+                              </span>
+                              <span className="message-count">
+                                Active: {sub.activeMessageCount || 0} | DLQ: {sub.dlqMessageCount || 0} | Total: {sub.messageCount || 0}
+                              </span>
+                            </div>
+                            {isExpanded && (
+                              <SubscriptionActions 
+                                topic={topic}
+                                subscription={sub}
+                                onViewMessages={() => handleViewMessages(topic, sub)}
+                                onViewDlq={() => handleViewMessages(topic, sub, true)}
+                                onRefresh={() => handleSubscriptionRefresh(topic.name, sub.subscriptionName)}
+                              />
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
