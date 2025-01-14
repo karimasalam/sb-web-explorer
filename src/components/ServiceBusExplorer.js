@@ -72,14 +72,14 @@ const SubscriptionActions = ({ topic, subscription, onViewMessages, onViewDlq, o
           disabled={loading}
           className="action-button"
         >
-          Get Messages
+          📨 Messages
         </button>
         <button 
           onClick={() => handleAction('dlq')} 
           disabled={loading}
           className="action-button"
         >
-          Get DLQ Messages
+          📨 DLQ
         </button>
         <button 
           onClick={() => handleAction('refresh')} 
@@ -350,17 +350,33 @@ const ServiceBusExplorer = ({ connectionString }) => {
         
         <div className="entity-section">
           <h4 onClick={() => toggleSection('queues')} style={{ cursor: 'pointer' }}>
-            {expandedSections.queues ? '▼' : '▶'} Queues ({entities.queues.length})
+            <span>{expandedSections.queues ? '▼' : '▶'}</span>
+            Queues
+            <span className="badge">{entities.queues.length}</span>
           </h4>
           {expandedSections.queues && (
             <ul className="entity-list">
               {entities.queues.map((queue) => (
                 <li key={queue.name} className="entity-item">
                   <div className="queue-info">
-                    <span className="entity-name">📬 {queue.name}</span>
-                    <span className="message-count">
-                      Active: {queue.activeMessageCount || 0} | DLQ: {queue.dlqMessageCount || 0} | Total: {queue.messageCount || 0}
-                    </span>
+                    <div className="queue-name">
+                      <span className="queue-name-icon">📬</span>
+                      <span>{queue.name}</span>
+                    </div>
+                    <div className="queue-metrics">
+                      <div className="metric-item">
+                        <span className="metric-label">Active:</span>
+                        <span className="metric-value">{queue.activeMessageCount || 0}</span>
+                      </div>
+                      <div className="metric-item">
+                        <span className="metric-label">DLQ:</span>
+                        <span className="metric-value">{queue.dlqMessageCount || 0}</span>
+                      </div>
+                      <div className="metric-item">
+                        <span className="metric-label">Total:</span>
+                        <span className="metric-value">{queue.messageCount || 0}</span>
+                      </div>
+                    </div>
                   </div>
                 </li>
               ))}
@@ -370,7 +386,9 @@ const ServiceBusExplorer = ({ connectionString }) => {
 
         <div className="entity-section">
           <h4 onClick={() => toggleSection('topics')} style={{ cursor: 'pointer' }}>
-            {expandedSections.topics ? '▼' : '▶'} Topics ({entities.topics.length})
+            <span>{expandedSections.topics ? '▼' : '▶'}</span>
+            Topics
+            <span className="badge">{entities.topics.length}</span>
           </h4>
           {expandedSections.topics && (
             <ul className="entity-list">
@@ -378,7 +396,14 @@ const ServiceBusExplorer = ({ connectionString }) => {
                 <li key={topic.name} className="entity-item">
                   <div className="topic-name" onClick={() => toggleTopicSubscriptions(topic.name)} style={{ cursor: 'pointer' }}>
                     <span>{expandedTopicSubscriptions[topic.name] ? '▼' : '▶'}</span>
-                    <span>📢 {topic.name}</span>
+                    <svg className="topic-icon" width="20" height="20" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M0 10C0 4.47715 4.47715 0 10 0H40C45.5228 0 50 4.47715 50 10V40C50 45.5228 45.5228 50 40 50H10C4.47715 50 0 45.5228 0 40V10Z" fill="#0078D4"/>
+                      <path d="M34 16H16C14.8954 16 14 16.8954 14 18V32C14 33.1046 14.8954 34 16 34H34C35.1046 34 36 33.1046 36 32V18C36 16.8954 35.1046 16 34 16Z" stroke="white" strokeWidth="2"/>
+                      <path d="M14 20L25 26L36 20" stroke="white" strokeWidth="2"/>
+                      <rect x="20" y="23" width="10" height="2" fill="white"/>
+                      <rect x="20" y="27" width="10" height="2" fill="white"/>
+                    </svg>
+                    {topic.name}
                   </div>
                   {expandedTopicSubscriptions[topic.name] && Array.isArray(topic.subscriptions) && topic.subscriptions.length > 0 && (
                     <ul className="subscription-list">
@@ -391,11 +416,27 @@ const ServiceBusExplorer = ({ connectionString }) => {
                               onClick={() => toggleSubscription(topic.name, sub.subscriptionName)}
                             >
                               <span className="subscription-name">
-                                📥 {sub.subscriptionName}
+                                <svg className="subscription-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <rect x="2" y="2" width="20" height="20" rx="2" fill="#0078d4"/>
+                                  <path d="M6 8L12 12L18 8" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+                                  <path d="M6 12L12 16L18 12" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+                                </svg>
+                                {sub.subscriptionName}
                               </span>
-                              <span className="message-count">
-                                Active: {sub.activeMessageCount || 0} | DLQ: {sub.dlqMessageCount || 0} | Total: {sub.messageCount || 0}
-                              </span>
+                              <div className="queue-metrics">
+                                <div className="metric-item">
+                                  <span className="metric-label">Active:</span>
+                                  <span className="metric-value">{sub.activeMessageCount || 0}</span>
+                                </div>
+                                <div className="metric-item">
+                                  <span className="metric-label">DLQ:</span>
+                                  <span className="metric-value">{sub.dlqMessageCount || 0}</span>
+                                </div>
+                                <div className="metric-item">
+                                  <span className="metric-label">Total:</span>
+                                  <span className="metric-value">{sub.messageCount || 0}</span>
+                                </div>
+                              </div>
                             </div>
                             {isExpanded && (
                               <SubscriptionActions 
