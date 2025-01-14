@@ -208,6 +208,12 @@ app.get('/api/topics/:topicName/subscriptions/:subscriptionName/messages', async
 // Delete messages from a subscription
 app.delete('/api/topics/:topicName/subscriptions/:subscriptionName/messages', async (req, res) => {
     try {
+        console.log('Deleting messages from subscription:', {
+            params: req.params,
+            body: req.body,
+            isDlq: req.body.isDlq
+        });
+
         const { topicName, subscriptionName } = req.params;
         const { messageIds, isDlq = false } = req.body;
 
@@ -223,40 +229,102 @@ app.delete('/api/topics/:topicName/subscriptions/:subscriptionName/messages', as
 
         try {
             if (messageIds && messageIds.length > 0) {
-                // Delete specific messages by receiving and completing them
-                for (let i = 0; i < messageIds.length; i += 20) {
-                    const batch = messageIds.slice(i, i + 20);
-                    const messages = await receiver.receiveMessages(batch.length, { maxWaitTimeInMs: 5000 });
-                    
+                console.log('Deleting specific messages:', messageIds);
+                let deletedCount = 0;
+                let maxAttempts = 3;
+                let attempt = 0;
+
+                while (deletedCount < messageIds.length && attempt < maxAttempts) {
+                    attempt++;
+                    console.log(`Attempt ${attempt} to delete messages`);
+
+                    // Receive a batch of messages
+                    const messages = await receiver.receiveMessages(32, { 
+                        maxWaitTimeInMs: 5000 
+                    });
+
+                    console.log(`Received ${messages.length} messages to process`);
+                    console.log('Message IDs in batch:', messages.map(m => m.messageId));
+
+                    // Process each message
                     for (const message of messages) {
-                        if (batch.includes(message.messageId)) {
-                            await receiver.completeMessage(message);
+                        if (messageIds.includes(message.messageId)) {
+                            try {
+                                await receiver.completeMessage(message);
+                                deletedCount++;
+                                console.log('Successfully deleted message:', message.messageId);
+                            } catch (error) {
+                                console.error('Error completing message:', message.messageId, error);
+                                // Abandon the message if we can't complete it
+                                try {
+                                    await receiver.abandonMessage(message);
+                                } catch (abandonError) {
+                                    console.error('Error abandoning message:', abandonError);
+                                }
+                            }
+                        } else {
+                            // Abandon messages we don't want to delete
+                            try {
+                                await receiver.abandonMessage(message);
+                            } catch (abandonError) {
+                                console.error('Error abandoning message:', abandonError);
+                            }
                         }
                     }
+
+                    if (deletedCount === messageIds.length) {
+                        break; // We've deleted all requested messages
+                    }
+
+                    // Add a delay between attempts
+                    if (attempt < maxAttempts) {
+                        await delay(1000);
+                    }
                 }
+
+                console.log(`Completed deletion. Deleted ${deletedCount} out of ${messageIds.length} messages`);
+                res.json({ 
+                    success: true, 
+                    deletedCount,
+                    totalRequested: messageIds.length 
+                });
             } else {
                 // Delete all messages in batches
+                console.log('Deleting all messages');
+                let deletedCount = 0;
                 while (true) {
                     const messages = await receiver.receiveMessages(20, { maxWaitTimeInMs: 5000 });
                     if (messages.length === 0) break;
                     
                     for (const message of messages) {
-                        await receiver.completeMessage(message);
+                        try {
+                            await receiver.completeMessage(message);
+                            deletedCount++;
+                            console.log('Deleted message:', message.messageId);
+                        } catch (error) {
+                            console.error('Error deleting message:', message.messageId, error);
+                        }
                     }
 
-                    // Small delay to prevent overwhelming the service
+                    console.log(`Deleted batch of ${messages.length} messages. Total: ${deletedCount}`);
                     await delay(100);
                 }
+                
+                res.json({ 
+                    success: true, 
+                    deletedCount 
+                });
             }
-
-            res.json({ success: true });
         } finally {
             await receiver.close();
             await client.close();
         }
     } catch (error) {
         console.error('Error deleting messages:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ 
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 });
 
