@@ -1,6 +1,6 @@
-# Service Bus Explorer
+# Service Bus Explorer Web
 
-A web-based explorer for Azure Service Bus topics and subscriptions. This tool allows you to view, manage, and interact with your Azure Service Bus resources through a user-friendly interface.
+A web-based explorer for Azure Service Bus topics and subscriptions. This tool allows you to view, manage, and interact with your Azure Service Bus resources through a user-friendly interface in development environment.
 
 ## Features
 
