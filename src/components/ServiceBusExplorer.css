@@ -1,17 +1,68 @@
-.explorer-container {
-  position: relative;
+.service-bus-explorer {
+  height: 100%;
   display: flex;
-  height: calc(100vh - 4rem);
-  margin: 2rem;
-  background-color: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  flex-direction: column;
+}
+
+.explorer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #dee2e6;
+  background-color: #f8f9fa;
+}
+
+.explorer-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #495057;
+}
+
+.explorer-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 1rem;
 }
 
 .explorer-content {
   flex: 1;
-  padding: 2rem;
-  overflow-y: auto;
+  overflow: hidden;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+}
+
+.explorer-layout {
+  display: flex;
+  gap: 2rem;
+  height: calc(100% - 4rem);
+}
+
+.tree-section {
+  flex: 0 0 33.333%;
+  overflow: auto;
+  padding: 1rem;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.subscriptions-section {
+  flex: 0 0 66.666%;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  overflow: hidden;
+}
+
+.subscriptions-section h4 {
+  margin: 0 0 1rem 0;
+  color: #333;
 }
 
 .entity-section {
@@ -57,6 +108,8 @@
 
 .queue-info {
   display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
   justify-content: space-between;
   align-items: center;
   background-color: #fff;
@@ -73,11 +126,11 @@
 }
 
 .queue-name {
+  font-weight: 500;
+  color: #495057;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-weight: 500;
-  color: #495057;
 }
 
 .queue-name-icon {
@@ -87,30 +140,15 @@
 
 .queue-metrics {
   display: flex;
-  align-items: center;
   gap: 1rem;
+  font-size: 0.85rem;
+  color: #666;
 }
 
 .metric-item {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0.75rem;
-  background-color: #f8f9fa;
-  border-radius: 6px;
-  border: 1px solid #e9ecef;
-}
-
-.metric-label {
-  font-weight: 500;
-  color: #6c757d;
-  font-size: 0.875rem;
-}
-
-.metric-value {
-  color: #0078d4;
-  font-weight: 600;
-  font-size: 0.875rem;
+  gap: 0.25rem;
 }
 
 .subscription-list {
@@ -249,7 +287,65 @@
   background-color: #f8f9fa;
 }
 
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  font-size: 1.2rem;
+  color: #666;
+}
 
+.error {
+  color: #dc3545;
+  padding: 1rem;
+  border: 1px solid #dc3545;
+  border-radius: 4px;
+  margin: 1rem 0;
+}
+
+/* PrimeReact Tree Customization */
+.p-tree {
+  border: none !important;
+  padding: 0.5rem !important;
+  background-color: transparent !important;
+}
+
+.p-tree .p-tree-container {
+  padding: 0.5rem !important;
+}
+
+.subscription-node {
+  margin-left: 1rem;
+}
+
+/* Tree Node Icons */
+.p-tree .p-tree-container .p-treenode .p-treenode-content .p-tree-toggler {
+  margin-right: 0.5rem;
+}
+
+.p-tree .p-tree-container .p-treenode .p-treenode-content .p-treenode-icon {
+  margin-right: 0.5rem;
+  color: #0078d4;
+}
+
+/* Search Box Styling */
+.p-tree .p-tree-filter-container {
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+}
+
+.p-tree .p-tree-filter-container .p-tree-filter {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+}
+
+.p-tree .p-tree-filter-container .p-tree-filter:focus {
+  border-color: #0078d4;
+  box-shadow: 0 0 0 0.2rem rgba(0, 120, 212, 0.25);
+}
 
 .explorer-container h3 {
   margin-bottom: 1.5rem;
@@ -426,6 +522,95 @@
   font-size: 1.1rem;
 }
 
+/* DataTable Styles */
+.p-datatable .p-datatable-header {
+  background: transparent;
+  border: none;
+  padding: 0.5rem 1rem;
+}
+
+.p-datatable .p-datatable-thead > tr > th {
+  background: #f8f9fa;
+  color: #495057;
+  font-weight: 600;
+  padding: 0.5rem;
+}
+
+.p-datatable .p-datatable-tbody > tr {
+  background: #fff;
+}
+
+.p-datatable .p-datatable-tbody > tr > td {
+  padding: 0.5rem;
+}
+
+.subscription-actions-cell {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.subscription-actions-cell .p-button.p-button-sm {
+  padding: 0.25rem;
+}
+
+.subscription-actions-cell .p-button.p-button-sm .p-button-icon {
+  font-size: 1rem;
+}
+
+/* Tree Styles */
+.p-tree {
+  border: none !important;
+  padding: 0.5rem !important;
+  background-color: transparent !important;
+}
+
+.p-tree .p-tree-container {
+  padding: 0.5rem !important;
+}
+
+.queue-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.queue-name {
+  font-weight: 500;
+}
+
+.queue-metrics {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.metric-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Loading and Error States */
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  font-size: 1.2rem;
+  color: #666;
+}
+
+.error {
+  color: #dc3545;
+  padding: 1rem;
+  border: 1px solid #dc3545;
+  border-radius: 4px;
+  margin: 1rem 0;
+}
+
 /* Toast Styles */
 .Toastify__toast {
   border-radius: 4px;
@@ -514,4 +699,26 @@
 .clear-button:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+.queue-details-table {
+  margin-top: 1rem;
+}
+
+.queue-details-table .p-datatable-thead > tr > th {
+  background-color: #f8f9fa;
+  color: #495057;
+  font-weight: 600;
+  padding: 1rem;
+  text-align: left;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.queue-details-table .p-datatable-tbody > tr > td {
+  padding: 1rem;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.queue-details-table .p-datatable-tbody > tr:hover {
+  background-color: #f8f9fa;
 }

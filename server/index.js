@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { ServiceBusClient, ServiceBusAdministrationClient, delay } = require('@azure/service-bus');
+const Long = require('long');
 
 const app = express();
 app.use(cors());
@@ -474,6 +475,285 @@ app.get('/api/topics/:topicName/subscriptions/:subscriptionName/details', async 
     } catch (error) {
         console.error('Error refreshing subscription details:', error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Get messages from a queue
+app.post('/api/queues/:queueName/messages', async (req, res) => {
+    try {
+        const { queueName } = req.params;
+        const { page = 0, isDlq = false } = req.query;
+        const pageSize = 100;
+        const skip = parseInt(page) * pageSize;
+        const isDeadLetter = isDlq === 'true';
+
+        // Get total message count first
+        const adminClient = new ServiceBusAdministrationClient(serviceBusConnection);
+        const runtimeProperties = await adminClient.getQueueRuntimeProperties(queueName);
+
+        console.log('Queue runtime properties:', runtimeProperties);
+        
+        // Use activeMessageCount for active messages and deadLetterMessageCount for DLQ
+        const totalMessages = isDeadLetter
+            ? (runtimeProperties.deadLetterMessageCount || 0)
+            : (runtimeProperties.activeMessageCount || 0);
+
+        // Calculate total pages
+        const totalPages = Math.max(1, Math.ceil(totalMessages / pageSize));
+
+        // Get messages for current page
+        const client = new ServiceBusClient(serviceBusConnection);
+        const receiver = client.createReceiver(queueName, {
+            receiveMode: "peekLock",
+            subQueueType: isDeadLetter ? "deadLetter" : undefined
+        });
+
+        try {
+            console.log(`Fetching messages for queue ${queueName}:`, {
+                page,
+                skip,
+                pageSize,
+                totalMessages,
+                totalPages,
+                isDlq: isDeadLetter
+            });
+
+            const messages = await receiver.peekMessages(pageSize, { skip });
+            console.log(`Retrieved ${messages.length} messages`);
+            
+            const formattedMessages = messages.map(message => ({
+                messageId: message.messageId,
+                body: message.body,
+                enqueuedTime: message.enqueuedTimeUtc,
+                properties: message.applicationProperties,
+                sequenceNumber: message.sequenceNumber
+            }));
+
+            res.json({ 
+                messages: formattedMessages,
+                totalMessages,
+                currentPage: parseInt(page),
+                totalPages,
+                hasMore: parseInt(page) < totalPages - 1
+            });
+        } finally {
+            await receiver.close();
+            await client.close();
+        }
+    } catch (error) {
+        console.error('Error fetching queue messages:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get queue details
+app.get('/api/queues/:queueName/details', async (req, res) => {
+    try {
+        const { queueName } = req.params;
+
+        if (!serviceBusConnection) {
+            return res.status(400).json({ error: 'No connection string provided' });
+        }
+
+        const adminClient = new ServiceBusAdministrationClient(serviceBusConnection);
+        const runtimeProperties = await adminClient.getQueueRuntimeProperties(queueName);
+
+        // Get the actual message count properties
+        const totalMessageCount = typeof runtimeProperties.messageCount === 'number'
+            ? runtimeProperties.messageCount
+            : (runtimeProperties.totalMessageCount || 0);
+            
+        const dlqCount = typeof runtimeProperties.deadLetterMessageCount === 'number'
+            ? runtimeProperties.deadLetterMessageCount
+            : 0;
+
+        // Calculate active messages (total minus DLQ)
+        const activeMessageCount = Math.max(0, totalMessageCount - dlqCount);
+
+        res.json({
+            messageCount: totalMessageCount,
+            activeMessageCount: activeMessageCount,
+            dlqMessageCount: dlqCount
+        });
+    } catch (error) {
+        console.error('Error fetching queue details:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete messages from a queue
+app.delete('/api/queues/:queueName/messages', async (req, res) => {
+    try {
+        console.log('Deleting messages from queue:', {
+            params: req.params,
+            body: req.body,
+            query: req.query
+        });
+
+        const { queueName } = req.params;
+        const { messageIds = [], isDlq = false } = req.body;
+        const isDeadLetter = isDlq === true;
+
+        if (!serviceBusConnection) {
+            return res.status(400).json({ error: 'No connection string provided' });
+        }
+
+        const client = new ServiceBusClient(serviceBusConnection);
+        const receiver = client.createReceiver(queueName, {
+            receiveMode: "peekLock",
+            subQueueType: isDeadLetter ? "deadLetter" : undefined
+        });
+
+        try {
+            let deletedCount = 0;
+            let failedCount = 0;
+
+            if (messageIds.length === 0) {
+                // Delete all messages
+                console.log('Deleting all messages from queue');
+                while (true) {
+                    const messages = await receiver.receiveMessages(20, { maxWaitTimeInMs: 5000 });
+                    if (messages.length === 0) break;
+
+                    for (const message of messages) {
+                        try {
+                            await receiver.completeMessage(message);
+                            deletedCount++;
+                        } catch (error) {
+                            console.error('Error deleting message:', error);
+                            failedCount++;
+                        }
+                    }
+                }
+            } else {
+                // Delete specific messages
+                console.log('Deleting specific messages:', messageIds);
+                for (const sequenceNumber of messageIds) {
+                    try {
+                        // Convert string sequence number to Long
+                        const longSequenceNumber = Long.fromValue(sequenceNumber);
+                        console.log('Using sequence number:', longSequenceNumber.toString());
+
+                        const messages = await receiver.peekMessages(1, { fromSequenceNumber: longSequenceNumber });
+                        if (messages.length > 0) {
+                            const message = await receiver.receiveMessages(1, {
+                                fromSequenceNumber: longSequenceNumber,
+                                maxWaitTimeInMs: 5000
+                            });
+                            if (message.length > 0) {
+                                await receiver.completeMessage(message[0]);
+                                deletedCount++;
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`Error deleting message ${sequenceNumber}:`, error);
+                        failedCount++;
+                    }
+                }
+            }
+
+            res.json({
+                success: true,
+                deletedCount,
+                failedCount,
+                message: `Successfully deleted ${deletedCount} messages${failedCount > 0 ? `, ${failedCount} failed` : ''}`
+            });
+        } finally {
+            await receiver.close();
+            await client.close();
+        }
+    } catch (error) {
+        console.error('Error deleting messages:', error);
+        res.status(500).json({ 
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+// Resubmit messages from queue DLQ
+app.post('/api/queues/:queueName/resubmit', async (req, res) => {
+    const { queueName } = req.params;
+    const { messageIds = [] } = req.body;
+
+    if (!serviceBusConnection) {
+        return res.status(400).json({ error: 'No connection string provided' });
+    }
+
+    const client = new ServiceBusClient(serviceBusConnection);
+    const deadLetterReceiver = client.createReceiver(queueName, {
+        receiveMode: "peekLock",
+        subQueueType: "deadLetter"
+    });
+    const sender = client.createSender(queueName);
+
+    let resubmittedCount = 0;
+    let failedCount = 0;
+
+    try {
+        if (messageIds.length === 0) {
+            // Resubmit all messages
+            while (true) {
+                const messages = await deadLetterReceiver.receiveMessages(20, { maxWaitTimeInMs: 5000 });
+                if (messages.length === 0) break;
+
+                for (const message of messages) {
+                    try {
+                        // Create a new message with the same body and properties
+                        await sender.sendMessages({
+                            body: message.body,
+                            applicationProperties: message.applicationProperties
+                        });
+                        // Complete the message in the DLQ
+                        await deadLetterReceiver.completeMessage(message);
+                        resubmittedCount++;
+                    } catch (error) {
+                        console.error('Error resubmitting message:', error);
+                        failedCount++;
+                        // Abandon the message if resubmit fails
+                        await deadLetterReceiver.abandonMessage(message);
+                    }
+                }
+            }
+        } else {
+            // Resubmit specific messages
+            for (const messageId of messageIds) {
+                try {
+                    const messages = await deadLetterReceiver.peekMessages(1, { fromSequenceNumber: messageId });
+                    if (messages.length > 0) {
+                        const message = await deadLetterReceiver.receiveMessages(1, {
+                            fromSequenceNumber: messageId,
+                            maxWaitTimeInMs: 5000
+                        });
+                        if (message.length > 0) {
+                            await sender.sendMessages({
+                                body: message[0].body,
+                                applicationProperties: message[0].applicationProperties
+                            });
+                            await deadLetterReceiver.completeMessage(message[0]);
+                            resubmittedCount++;
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Error resubmitting message ${messageId}:`, error);
+                    failedCount++;
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            resubmittedCount,
+            failedCount,
+            message: `Successfully resubmitted ${resubmittedCount} messages${failedCount > 0 ? `, ${failedCount} failed` : ''}`
+        });
+    } catch (error) {
+        console.error('Error resubmitting messages:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        await deadLetterReceiver.close();
+        await sender.close();
+        await client.close();
     }
 });
 

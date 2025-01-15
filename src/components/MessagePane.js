@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
+import { ConfirmDialog, confirmDialog } from 'primereact/confirmdialog';
 import './MessagePane.css';
 
 const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore, currentPage, totalPages, totalMessages, onRefresh }) => {
@@ -17,7 +18,7 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
   const toggleMessageSelection = (message, event) => {
     event.stopPropagation();
     const newSelected = new Set(selectedMessages);
-    const messageId = message.messageId;
+    const messageId = message.sequenceNumber?.toString() || message.sequenceNumber;
     if (newSelected.has(messageId)) {
       newSelected.delete(messageId);
     } else {
@@ -42,13 +43,20 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
     }
   };
 
-  const clearMessages = async (selectedOnly = false) => {
-    if (!window.confirm(selectedOnly 
-      ? `Are you sure you want to delete ${selectedMessages.size} selected messages?` 
-      : 'Are you sure you want to clear all messages?')) {
-      return;
-    }
+  const confirmClearMessages = (selectedOnly = false) => {
+    confirmDialog({
+      message: selectedOnly 
+        ? `Are you sure you want to delete ${selectedMessages.size} selected messages?` 
+        : 'Are you sure you want to clear all messages?',
+      header: selectedOnly ? 'Delete Selected Messages' : 'Clear All Messages',
+      icon: 'pi pi-exclamation-triangle',
+      acceptClassName: 'p-button-danger',
+      accept: () => clearMessages(selectedOnly),
+      reject: () => {}
+    });
+  };
 
+  const clearMessages = async (selectedOnly = false) => {
     setIsDeleting(true);
     const toastId = toast.loading(selectedOnly ? 'Deleting selected messages...' : 'Clearing all messages...');
 
@@ -61,46 +69,42 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
         isDlq
       });
 
-      const response = await fetch(
-        `http://localhost:3001/api/topics/${encodeURIComponent(topic.name)}/subscriptions/${encodeURIComponent(subscription.subscriptionName)}/messages`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messageIds: selectedOnly ? Array.from(selectedMessages) : [],
-            isDlq
-          }),
-        }
-      );
+      const isQueue = topic.type === 'queue';
+      const url = isQueue
+        ? `http://localhost:3001/api/queues/${encodeURIComponent(topic.name)}/messages`
+        : `http://localhost:3001/api/topics/${encodeURIComponent(topic.name)}/subscriptions/${encodeURIComponent(subscription.subscriptionName)}/messages`;
 
-      console.log('Delete response status:', response.status);
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Delete response error:', errorData);
-        throw new Error(errorData.error || 'Failed to clear messages');
-      }
-
-      // Refresh the subscription details first
-      await onRefresh(topic.name, subscription.subscriptionName);
-      
-      // Show success toast
-      toast.update(toastId, {
-        render: selectedOnly 
-          ? `Successfully deleted ${selectedMessages.size} messages` 
-          : 'Successfully cleared all messages',
-        type: 'success',
-        isLoading: false,
-        autoClose: 3000
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messageIds: selectedOnly ? Array.from(selectedMessages) : [],
+          isDlq
+        }),
       });
 
-      // Close the message pane
-      onClose();
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.update(toastId, {
+          render: data.message || 'Messages deleted successfully',
+          type: 'success',
+          isLoading: false,
+          autoClose: 3000
+        });
+        
+        // Refresh the list after deletion
+        onRefresh(topic.name, subscription.subscriptionName);
+        setSelectedMessages(new Set());
+      } else {
+        throw new Error(data.error || 'Failed to delete messages');
+      }
     } catch (error) {
       console.error('Error clearing messages:', error);
       toast.update(toastId, {
-        render: `Failed to clear messages: ${error.message}`,
+        render: error.message || 'Failed to delete messages',
         type: 'error',
         isLoading: false,
         autoClose: 5000
@@ -110,30 +114,38 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
     }
   };
 
-  const resubmitMessages = async (selectedOnly = false) => {
-    if (!window.confirm(selectedOnly 
-      ? `Are you sure you want to resubmit ${selectedMessages.size} selected messages?` 
-      : 'Are you sure you want to resubmit all messages?')) {
-      return;
-    }
+  const confirmResubmitMessages = (selectedOnly = false) => {
+    confirmDialog({
+      message: selectedOnly 
+        ? `Are you sure you want to resubmit ${selectedMessages.size} selected messages?` 
+        : 'Are you sure you want to resubmit all messages?',
+      header: selectedOnly ? 'Resubmit Selected Messages' : 'Resubmit All Messages',
+      icon: 'pi pi-exclamation-triangle',
+      accept: () => resubmitMessages(selectedOnly),
+      reject: () => {}
+    });
+  };
 
+  const resubmitMessages = async (selectedOnly = false) => {
     setIsDeleting(true);
     const toastId = toast.loading(selectedOnly ? 'Resubmitting selected messages...' : 'Resubmitting all messages...');
 
     try {
-      const response = await fetch(
-        `http://localhost:3001/api/topics/${topic.name}/subscriptions/${subscription.subscriptionName}/resubmit`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messageIds: selectedOnly ? Array.from(selectedMessages) : [],
-            isDlq
-          }),
-        }
-      );
+      const isQueue = topic.type === 'queue';
+      const url = isQueue
+        ? `http://localhost:3001/api/queues/${topic.name}/resubmit`
+        : `http://localhost:3001/api/topics/${topic.name}/subscriptions/${subscription.subscriptionName}/resubmit`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messageIds: selectedOnly ? Array.from(selectedMessages) : [],
+          isDlq
+        }),
+      });
 
       const data = await response.json();
 
@@ -141,41 +153,25 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
         if (data.success) {
           // All messages resubmitted successfully
           toast.update(toastId, {
-            render: data.message,
+            render: data.message || 'Messages resubmitted successfully',
             type: 'success',
             isLoading: false,
             autoClose: 3000
           });
-          // Refresh and close
-          await onRefresh(topic.name, subscription.subscriptionName);
-          onClose();
+          
+          // Refresh the list after resubmission
+          onRefresh(topic.name, subscription.subscriptionName);
+          setSelectedMessages(new Set());
         } else {
-          // Some messages failed (status 207) or no messages found (status 404)
-          toast.update(toastId, {
-            render: data.message,
-            type: 'warning',
-            isLoading: false,
-            autoClose: 5000
-          });
-          if (data.details?.failedMessages?.length > 0) {
-            // Show details of failed messages
-            console.error('Failed messages:', data.details.failedMessages);
-            data.details.failedMessages.forEach(({ messageId, error }) => {
-              toast.error(`Failed to resubmit message ${messageId}: ${error}`, {
-                autoClose: 5000
-              });
-            });
-          }
-          // Refresh to show updated state
-          await onRefresh(topic.name, subscription.subscriptionName);
+          throw new Error(data.error || 'Failed to resubmit some messages');
         }
       } else {
-        throw new Error(data.message || 'Failed to resubmit messages');
+        throw new Error(data.error || 'Failed to resubmit messages');
       }
     } catch (error) {
       console.error('Error resubmitting messages:', error);
       toast.update(toastId, {
-        render: `Failed to resubmit messages: ${error.message}`,
+        render: error.message,
         type: 'error',
         isLoading: false,
         autoClose: 5000
@@ -191,80 +187,93 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
 
   const filteredMessages = messages.filter(message => {
     if (!idFilter) return true;
-    const messageId = message?.messageId || message?.id || '';
-    return messageId.toString().toLowerCase().includes(idFilter.toLowerCase());
+    const messageId = (message?.sequenceNumber?.toString() || message?.sequenceNumber || message?.id || '').toString();
+    return messageId.toLowerCase().includes(idFilter.toLowerCase());
   });
 
   return (
     <div className="message-pane">
+      <ConfirmDialog />
       <div className="message-pane-header">
         <h2>{isDlq ? 'Dead Letter Queue Messages' : 'Messages'}</h2>
-        <div className="message-controls">
+        <div className="message-pane-actions">
           <input
             type="text"
             placeholder="Filter by ID..."
             value={idFilter}
             onChange={(e) => setIdFilter(e.target.value)}
-            className="id-filter"
+            className="message-filter"
           />
-          <button onClick={onClose} className="close-icon-button">×</button>
+          {isDlq && (
+            <>
+              <button
+                className="resubmit-button"
+                onClick={() => confirmResubmitMessages(true)}
+                disabled={isDeleting || selectedMessages.size === 0}
+              >
+                Resubmit Selected ({selectedMessages.size})
+              </button>
+              <button
+                className="resubmit-button"
+                onClick={() => confirmResubmitMessages(false)}
+                disabled={isDeleting || messages.length === 0}
+              >
+                Resubmit All
+              </button>
+            </>
+          )}
+          <button
+            className="delete-button"
+            onClick={() => confirmClearMessages(true)}
+            disabled={isDeleting || selectedMessages.size === 0}
+          >
+            Delete Selected ({selectedMessages.size})
+          </button>
+          <button
+            className="clear-button"
+            onClick={() => confirmClearMessages(false)}
+            disabled={isDeleting || messages.length === 0}
+          >
+            Clear All
+          </button>
+          <button className="close-button" onClick={onClose}>×</button>
         </div>
-      </div>
-      <div className="message-actions">
-        <button
-          onClick={() => clearMessages(true)}
-          disabled={selectedMessages.size === 0 || isDeleting}
-        >
-          Delete Selected ({selectedMessages.size})
-        </button>
-        <button
-          onClick={() => clearMessages(false)}
-          disabled={messages.length === 0 || isDeleting}
-        >
-          Clear All
-        </button>
-        {isDlq && (
-          <>
-            <button
-              onClick={() => resubmitMessages(true)}
-              disabled={selectedMessages.size === 0 || isDeleting}
-            >
-              Resubmit Selected ({selectedMessages.size})
-            </button>
-            <button
-              onClick={() => resubmitMessages(false)}
-              disabled={messages.length === 0 || isDeleting}
-            >
-              Resubmit All
-            </button>
-          </>
-        )}
       </div>
       <div className="message-pane-content">
         <div className="message-list" onScroll={handleScroll}>
-          {filteredMessages.map((message) => (
-            <div
-              key={message.messageId || message.id}
-              className={`message-item ${selectedPreviewMessage?.messageId === message.messageId ? 'selected' : ''}`}
-              onClick={() => handleMessageClick(message)}
-            >
-              <div className="message-header">
-                <input
-                  type="checkbox"
-                  checked={selectedMessages.has(message.messageId)}
-                  onChange={(e) => toggleMessageSelection(message, e)}
-                />
-                <span className="message-id">ID: {message.messageId}</span>
+          {filteredMessages.map((message) => {
+            const messageBody = typeof message.body === 'string' 
+              ? message.body 
+              : JSON.stringify(message.body, null, 2);
+            const previewText = messageBody.length > 150 
+              ? messageBody.substring(0, 150) + '...' 
+              : messageBody;
+
+            return (
+              <div
+                key={message.sequenceNumber || message.id}
+                className={`message-item ${selectedPreviewMessage?.sequenceNumber === message.sequenceNumber ? 'selected' : ''}`}
+                onClick={() => handleMessageClick(message)}
+              >
+                <div className="message-header">
+                  <input
+                    type="checkbox"
+                    checked={selectedMessages.has(message.sequenceNumber?.toString() || message.sequenceNumber)}
+                    onChange={(e) => toggleMessageSelection(message, e)}
+                  />
+                  <span className="message-id">ID: {message.sequenceNumber?.toString() || message.id}</span>
+                  <span className="message-time">{new Date(message.enqueuedTime).toLocaleString()}</span>
+                </div>
+                <div className="message-preview">
+                  {message.body ? (
+                    <pre>{previewText}</pre>
+                  ) : (
+                    <span className="no-data">No message body</span>
+                  )}
+                </div>
               </div>
-              <div className="message-preview">
-                {message.body ? (
-                  <pre>{typeof message.body === 'string' ? message.body.substring(0, 100) : JSON.stringify(message.body, null, 2).substring(2, 100)}...</pre>
-                ) : (
-                  <span className="no-data">No data</span>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {loading && <div className="loading">Loading more messages...</div>}
         </div>
         <div className="message-preview-pane">
@@ -272,7 +281,7 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
             <div className="preview-content">
               <h3>Message Details</h3>
               <div className="message-metadata">
-                <p><strong>ID:</strong> {selectedPreviewMessage.messageId || selectedPreviewMessage.id}</p>
+                <p><strong>ID:</strong> {selectedPreviewMessage.sequenceNumber?.toString() || selectedPreviewMessage.id}</p>
                 <p><strong>Published:</strong> {new Date(selectedPreviewMessage.enqueuedTime).toLocaleString()}</p>
               </div>
               <div className="message-data">
