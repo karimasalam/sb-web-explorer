@@ -184,21 +184,21 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
           icon="pi pi-envelope" 
           className="p-button-text p-button-sm" 
           tooltip="Get Messages"
-          tooltipOptions={{ position: 'right', hideEvent: 'click' }}
+          tooltipOptions={{ position: 'right', hideEvent: 'click', hideEvent: 'mouseleave' }}
           onClick={() => handleViewMessages(selectedTopic, subscription)}
         />
         <Button 
           icon="pi pi-exclamation-triangle" 
           className="p-button-text p-button-sm p-button-warning" 
           tooltip="Get DLQ Messages"
-          tooltipOptions={{ position: 'left', hideEvent: 'click' }}
+          tooltipOptions={{ position: 'left', hideEvent: 'click', hideEvent: 'mouseleave' }}
           onClick={() => handleViewMessages(selectedTopic, subscription, true)}
         />
         <Button 
           icon="pi pi-refresh" 
           className="p-button-text p-button-sm" 
           tooltip="Refresh"
-          tooltipOptions={{ position: 'left', hideEvent: 'click' }}
+          tooltipOptions={{ position: 'left', hideEvent: 'click', hideEvent: 'mouseleave' }}
           onClick={() => handleSubscriptionRefresh(selectedTopic.name, subscription.subscriptionName)}
         />
       </div>
