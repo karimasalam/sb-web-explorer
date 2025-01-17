@@ -8,7 +8,7 @@ import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
 import { Button } from 'primereact/button';
 
-const SubscriptionActions = ({ topic, subscription, onViewMessages, onViewDlq, onRefresh }) => {
+const SubscriptionActions = ({ topic, subscription, onViewMessages, onRefresh, onSubscriptionUpdate }) => {
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState(null);
   const [isDlq, setIsDlq] = useState(false);
@@ -16,26 +16,8 @@ const SubscriptionActions = ({ topic, subscription, onViewMessages, onViewDlq, o
   const [totalPages, setTotalPages] = useState(0);
   const [totalMessages, setTotalMessages] = useState(0);
 
-  const fetchMessages = async (page = 0, isNewFetch = true, isDeadLetter = isDlq) => {
-    try {
-      console.log('Fetching messages:', { topic: topic.name, subscription: subscription.subscriptionName, isDlq: isDeadLetter, page });
-      const response = await fetch(
-        `http://localhost:3001/api/topics/${topic.name}/subscriptions/${subscription.subscriptionName}/messages?page=${page}&isDlq=${isDeadLetter}`
-      );
-      const data = await response.json();
-      
-      if (isNewFetch) {
-        setMessages(data.messages);
-      } else {
-        setMessages(prev => [...prev, ...data.messages]);
-      }
-      setCurrentPage(data.currentPage);
-      setTotalPages(data.totalPages);
-      setTotalMessages(data.totalMessages);
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-      toast.error('Failed to fetch messages. Please try again.');
-    }
+  const handleSubscriptionUpdate = (details) => {
+    onSubscriptionUpdate?.(topic.name, subscription.subscriptionName, details);
   };
 
   const handleAction = async (action) => {
@@ -44,18 +26,14 @@ const SubscriptionActions = ({ topic, subscription, onViewMessages, onViewDlq, o
       switch (action) {
         case 'messages':
           setIsDlq(false);
-          await fetchMessages(0, true, false);
+          onViewMessages(topic, subscription, false);
           break;
         case 'dlq':
           setIsDlq(true);
-          await fetchMessages(0, true, true);
+          onViewMessages(topic, subscription, true);
           break;
         case 'refresh':
-          const detailsResponse = await fetch(
-            `http://localhost:3001/api/topics/${topic.name}/subscriptions/${subscription.subscriptionName}/details`
-          );
-          const details = await detailsResponse.json();
-          onRefresh(topic.name, subscription.subscriptionName, details);
+          await onRefresh(topic.name, subscription.subscriptionName);
           break;
         default:
           break;
@@ -93,18 +71,112 @@ const SubscriptionActions = ({ topic, subscription, onViewMessages, onViewDlq, o
           🔄 Refresh
         </button>
       </div>
+    </div>
+  );
+};
+
+const QueueActions = ({ queue, onViewMessages, onViewDlq, onRefresh, onQueueUpdate }) => {
+  const [loading, setLoading] = useState(false);
+  const [messages, setMessages] = useState(null);
+  const [isDlq, setIsDlq] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalMessages, setTotalMessages] = useState(0);
+
+  const fetchMessages = async (page = 0, isNewFetch = true, isDeadLetter = isDlq) => {
+    try {
+      console.log('Fetching messages:', { queue: queue.name, isDlq: isDeadLetter, page });
+      const response = await fetch(
+        `http://localhost:3001/api/queues/${queue.name}/messages?page=${page}&isDlq=${isDeadLetter}`
+      );
+      const data = await response.json();
+      
+      if (isNewFetch) {
+        setMessages(data.messages);
+      } else {
+        setMessages(prev => [...prev, ...data.messages]);
+      }
+      setCurrentPage(data.currentPage);
+      setTotalPages(data.totalPages);
+      setTotalMessages(data.totalMessages);
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+      toast.error('Failed to fetch messages. Please try again.');
+    }
+  };
+
+  const handleAction = async (action) => {
+    setLoading(true);
+    try {
+      switch (action) {
+        case 'messages':
+          setIsDlq(false);
+          await fetchMessages(0, true, false);
+          break;
+        case 'dlq':
+          setIsDlq(true);
+          await fetchMessages(0, true, true);
+          break;
+        case 'refresh':
+          const detailsResponse = await fetch(
+            `http://localhost:3001/api/queues/${queue.name}/details`
+          );
+          const details = await detailsResponse.json();
+          onRefresh(queue.name, details);
+          break;
+        default:
+          break;
+      }
+    } catch (error) {
+      console.error('Error performing action:', error);
+      toast.error('An error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleQueueUpdate = (details) => {
+    onQueueUpdate?.(queue.name, details);
+  };
+
+  return (
+    <div className="queue-actions">
+      <div className="action-buttons">
+        <button 
+          onClick={() => handleAction('messages')} 
+          disabled={loading}
+          className="action-button"
+        >
+          📨 Messages
+        </button>
+        <button 
+          onClick={() => handleAction('dlq')} 
+          disabled={loading}
+          className="action-button"
+        >
+          📨 DLQ
+        </button>
+        <button 
+          onClick={() => handleAction('refresh')} 
+          disabled={loading}
+          className="action-button refresh-button"
+        >
+          🔄 Refresh
+        </button>
+      </div>
       {messages && (
-        <MessagePane 
+        <MessagePane
           messages={messages}
           onClose={() => setMessages(null)}
           isDlq={isDlq}
-          topic={topic}
-          subscription={subscription}
-          onLoadMore={(page) => fetchMessages(page, false)}
+          topic={queue}
+          subscription={null}
+          onLoadMore={() => fetchMessages(currentPage + 1, false)}
           currentPage={currentPage}
           totalPages={totalPages}
           totalMessages={totalMessages}
-          onRefresh={onRefresh}
+          onRefresh={fetchMessages}
+          onQueueUpdate={handleQueueUpdate}
         />
       )}
     </div>
@@ -177,29 +249,32 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
     }
   };
 
-  const actionsTemplate = (subscription) => {
+  const subscriptionActionsTemplate = (subscription) => {
     return (
       <div className="subscription-actions-cell">
         <Button 
           icon="pi pi-envelope" 
           className="p-button-text p-button-sm" 
-          tooltip="Get Messages"
-          tooltipOptions={{ position: 'right', hideEvent: 'click', hideEvent: 'mouseleave' }}
-          onClick={() => handleViewMessages(selectedTopic, subscription)}
+          tooltip="View Messages"
+          tooltipOptions={{ position: 'left' }}
+          onClick={() => handleViewMessages(selectedTopic, subscription, false)}
         />
         <Button 
           icon="pi pi-exclamation-triangle" 
-          className="p-button-text p-button-sm p-button-warning" 
-          tooltip="Get DLQ Messages"
-          tooltipOptions={{ position: 'left', hideEvent: 'click', hideEvent: 'mouseleave' }}
+          className="p-button-text p-button-sm" 
+          tooltip="View DLQ"
+          tooltipOptions={{ position: 'left' }}
           onClick={() => handleViewMessages(selectedTopic, subscription, true)}
         />
         <Button 
           icon="pi pi-refresh" 
           className="p-button-text p-button-sm" 
           tooltip="Refresh"
-          tooltipOptions={{ position: 'left', hideEvent: 'click', hideEvent: 'mouseleave' }}
-          onClick={() => handleSubscriptionRefresh(selectedTopic.name, subscription.subscriptionName)}
+          tooltipOptions={{ position: 'left' }}
+          onClick={() => {
+            console.log('Refresh button clicked for:', subscription);
+            handleRefreshSubscription(selectedTopic.name, subscription.subscriptionName);
+          }}
         />
       </div>
     );
@@ -226,7 +301,7 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
           className="p-button-text p-button-sm" 
           tooltip="Refresh"
           tooltipOptions={{ position: 'left'}}
-          onClick={() => handleSubscriptionRefresh(queue.name, queue.name)}
+          onClick={() => handleRefreshSubscription(queue.name, queue.name)}
         />
       </div>
     );
@@ -250,7 +325,7 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
       let fetchOptions = {
         method: topic.type === 'queue' ? 'POST' : 'GET',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         }
       };
 
@@ -334,55 +409,131 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
     setSelectedSubscription(null);
   };
 
-  const handleSubscriptionRefresh = async (topicName, subscriptionName) => {
+  const handleRefreshSubscription = async (topicName, subscriptionName) => {
     try {
-      let url;
-      if (selectedQueue) {
-        url = `http://localhost:3001/api/queues/${topicName}/details`;
-      } else {
-        url = `http://localhost:3001/api/topics/${topicName}/subscriptions/${subscriptionName}/details`;
-      }
+      setLoading(true);
+      console.log('Refreshing subscription:', { topicName, subscriptionName });
       
-      const response = await fetch(url);
+      const detailsUrl = `http://localhost:3001/api/topics/${encodeURIComponent(topicName)}/subscriptions/${encodeURIComponent(subscriptionName)}/details`;
+      const response = await fetch(detailsUrl);
+      
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error('Failed to refresh subscription details');
       }
+
       const details = await response.json();
-      
-      // Update the entities state with new details
-      setEntities(prevState => {
-        if (selectedQueue) {
-          return {
-            ...prevState,
-            queues: prevState.queues.map(queue => 
-              queue.name === topicName ? { ...queue, ...details } : queue
-            )
-          };
-        } else {
-          return {
-            ...prevState,
-            topics: prevState.topics.map(topic => {
-              if (topic.name === topicName) {
-                return {
-                  ...topic,
-                  subscriptions: topic.subscriptions.map(sub =>
-                    sub.subscriptionName === subscriptionName
-                      ? { ...sub, ...details }
-                      : sub
-                  )
-                };
-              }
-              return topic;
-            })
-          };
-        }
+      console.log('Received subscription details:', details);
+
+      setEntities(prev => {
+        // Create completely new references
+        const newEntities = {
+          ...prev,
+          topics: prev.topics.map(topic => {
+            if (topic.name === topicName) {
+              return {
+                ...topic,
+                subscriptions: topic.subscriptions.map(sub => {
+                  if (sub.subscriptionName === subscriptionName) {
+                    const updatedSub = {
+                      ...sub,
+                      activeMessageCount: parseInt(details.activeMessageCount),
+                      dlqMessageCount: parseInt(details.dlqMessageCount),
+                      messageCount: parseInt(details.messageCount)
+                    };
+                    console.log('Updated subscription:', updatedSub);
+                    return updatedSub;
+                  }
+                  return sub;
+                })
+              };
+            }
+            return topic;
+          })
+        };
+
+        console.log('Updated entities:', JSON.stringify(newEntities, null, 2));
+        return newEntities;
       });
 
-      toast.success('Refreshed successfully');
+      // Force a re-render of the selected topic
+      setSelectedTopic(prev => {
+        if (prev && prev.name === topicName) {
+          const updatedTopic = {
+            ...prev,
+            subscriptions: prev.subscriptions.map(sub => {
+              if (sub.subscriptionName === subscriptionName) {
+                return {
+                  ...sub,
+                  activeMessageCount: parseInt(details.activeMessageCount),
+                  dlqMessageCount: parseInt(details.dlqMessageCount),
+                  messageCount: parseInt(details.messageCount)
+                };
+              }
+              return sub;
+            })
+          };
+          console.log('Updated selected topic:', updatedTopic);
+          return updatedTopic;
+        }
+        return prev;
+      });
+
+      toast.success('Subscription refreshed successfully');
     } catch (error) {
-      console.error('Error refreshing details:', error);
-      toast.error('Failed to refresh. Please try again.');
+      console.error('Error refreshing subscription:', error);
+      toast.error('Failed to refresh subscription');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleSubscriptionUpdate = (topicName, subscriptionName, details) => {
+    console.log('Updating subscription details:', { topicName, subscriptionName, details });
+    setEntities(prev => {
+      console.log('Current entities:', prev);
+      const newEntities = { ...prev };
+      const topic = newEntities.topics.find(t => t.name === topicName);
+      if (topic) {
+        const subIndex = topic.subscriptions.findIndex(s => s.subscriptionName === subscriptionName);
+        if (subIndex !== -1) {
+          console.log('Updating subscription at index:', subIndex);
+          topic.subscriptions[subIndex] = {
+            ...topic.subscriptions[subIndex],
+            activeMessageCount: parseInt(details.activeMessageCount),
+            dlqMessageCount: parseInt(details.dlqMessageCount),
+            messageCount: parseInt(details.messageCount)
+          };
+        }
+      }
+      console.log('Updated entities:', newEntities);
+      return newEntities;
+    });
+  };
+
+  const handleQueueUpdate = (queueName, details) => {
+    setEntities(prev => {
+      const newEntities = { ...prev };
+      const queueIndex = newEntities.queues.findIndex(q => q.name === queueName);
+      if (queueIndex !== -1) {
+        newEntities.queues[queueIndex] = {
+          ...newEntities.queues[queueIndex],
+          ...details
+        };
+      }
+      return newEntities;
+    });
+  };
+
+  const handleQueueMessages = (queue) => {
+    handleViewMessages({ ...queue, type: 'queue' }, { subscriptionName: queue.name }, false);
+  };
+
+  const handleQueueDlq = (queue) => {
+    handleViewMessages({ ...queue, type: 'queue' }, { subscriptionName: queue.name }, true);
+  };
+
+  const handleQueueRefresh = (queueName) => {
+    handleRefreshSubscription(queueName, queueName);
   };
 
   useEffect(() => {
@@ -423,8 +574,12 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
     fetchServiceBusEntities();
   }, [connectionString]);
 
+  useEffect(() => {
+    console.log('Entities updated:', entities);
+  }, [entities]);
+
   return (
-    <div className="explorer-container">
+    <div className="service-bus-explorer">
       <ToastContainer
         position="top-right"
         autoClose={3000}
@@ -467,58 +622,77 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
           </div>
 
           <div className="subscriptions-section">
-            {selectedTopic && (
+            {selectedTopic && !selectedSubscription && (
               <>
                 <h3>{selectedTopic.name} Subscriptions</h3>
                 <DataTable
-                  value={selectedTopic.subscriptions}
+                  value={selectedTopic?.subscriptions || []}
+                  className="subscription-table"
+                  loading={loading}
+                  dataKey="subscriptionName"
                   scrollable
                   scrollHeight="400px"
-                  size="small"
-                  stripedRows
-                  showGridlines
-                  emptyMessage="No subscriptions found"
+                  onValueChange={(e) => {
+                    console.log('DataTable value changed:', e.value);
+                  }}
                 >
-                  <Column field="subscriptionName" header="Name" sortable />
+                  <Column 
+                    field="subscriptionName" 
+                    header="Name" 
+                    body={row => {
+                      console.log('Rendering subscription row:', row);
+                      return row.subscriptionName;
+                    }}
+                  />
                   <Column 
                     field="activeMessageCount" 
-                    header="Active" 
-                    sortable 
-                    body={row => row.activeMessageCount || 0}
+                    header="Active Messages" 
+                    body={row => {
+                      console.log('Active count for:', row.subscriptionName, row.activeMessageCount);
+                      return row.activeMessageCount;
+                    }}
                   />
                   <Column 
                     field="dlqMessageCount" 
-                    header="DLQ" 
-                    sortable 
-                    body={row => row.dlqMessageCount || 0}
+                    header="DLQ Messages" 
+                    body={row => {
+                      console.log('DLQ count for:', row.subscriptionName, row.dlqMessageCount);
+                      return row.dlqMessageCount;
+                    }}
                   />
                   <Column 
                     field="messageCount" 
-                    header="Total" 
-                    sortable 
-                    body={row => row.messageCount || 0}
+                    header="Total Messages" 
+                    body={row => {
+                      console.log('Total count for:', row.subscriptionName, row.messageCount);
+                      return row.messageCount;
+                    }}
                   />
                   <Column 
-                    body={actionsTemplate} 
+                    body={subscriptionActionsTemplate} 
                     header="Actions" 
                     style={{ width: '150px' }}
                   />
                 </DataTable>
               </>
             )}
+            {selectedSubscription && (
+              <SubscriptionActions
+                topic={selectedTopic}
+                subscription={selectedSubscription}
+                onViewMessages={(topic, sub, isDlq) => handleViewMessages(topic, sub, isDlq)}
+                onRefresh={handleRefreshSubscription}
+                onSubscriptionUpdate={handleSubscriptionUpdate}
+              />
+            )}
             {selectedQueue && (
-              <>
-                <h3>{selectedQueue.name} Details</h3>
-                <DataTable 
-                  value={[selectedQueue]} 
-                  className="queue-details-table"
-                >
-                  <Column field="activeMessageCount" header="Active Messages" />
-                  <Column field="dlqMessageCount" header="DLQ Messages" />
-                  <Column field="messageCount" header="Total Messages" />
-                  <Column body={queueActionsTemplate} header="Actions" style={{ width: '150px' }} />
-                </DataTable>
-              </>
+              <QueueActions
+                queue={selectedQueue}
+                onViewMessages={handleQueueMessages}
+                onViewDlq={handleQueueDlq}
+                onRefresh={handleQueueRefresh}
+                onQueueUpdate={handleQueueUpdate}
+              />
             )}
           </div>
         </div>
@@ -535,7 +709,8 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
           currentPage={selectedSubscription.currentPage}
           totalPages={selectedSubscription.totalPages}
           totalMessages={selectedSubscription.totalMessages}
-          onRefresh={handleSubscriptionRefresh}
+          onRefresh={handleRefreshSubscription}
+          onSubscriptionUpdate={handleSubscriptionUpdate}
         />
       )}
     </div>

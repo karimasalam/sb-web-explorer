@@ -186,7 +186,7 @@ app.get('/api/topics/:topicName/subscriptions/:subscriptionName/messages', async
                 body: message.body,
                 enqueuedTime: message.enqueuedTimeUtc,
                 properties: message.applicationProperties,
-                sequenceNumber: message.sequenceNumber
+                sequenceNumber: message.sequenceNumber?.toString()
             }));
 
             res.json({ 
@@ -209,14 +209,17 @@ app.get('/api/topics/:topicName/subscriptions/:subscriptionName/messages', async
 // Delete messages from a subscription
 app.delete('/api/topics/:topicName/subscriptions/:subscriptionName/messages', async (req, res) => {
     try {
-        console.log('Deleting messages from subscription:', {
-            params: req.params,
-            body: req.body,
-            isDlq: req.body.isDlq
-        });
-
         const { topicName, subscriptionName } = req.params;
         const { messageIds, isDlq = false } = req.body;
+
+        console.log('Delete request details:', {
+            topicName,
+            subscriptionName,
+            isDlq,
+            messageIds,
+            messageIdsType: typeof messageIds,
+            isArray: Array.isArray(messageIds)
+        });
 
         if (!serviceBusConnection) {
             return res.status(400).json({ error: 'No connection string provided' });
@@ -234,29 +237,76 @@ app.delete('/api/topics/:topicName/subscriptions/:subscriptionName/messages', as
                 let deletedCount = 0;
                 let maxAttempts = 3;
                 let attempt = 0;
+                const batchSize = 100;
+                let processedMessageCount = 0;
+                let lastSequenceNumber = Long.ZERO;
 
-                while (deletedCount < messageIds.length && attempt < maxAttempts) {
+                // Get total message count
+                const adminClient = new ServiceBusAdministrationClient(serviceBusConnection);
+                const runtimeProperties = await adminClient.getSubscriptionRuntimeProperties(
+                    topicName, 
+                    subscriptionName
+                );
+                const totalMessages = isDlq
+                    ? (runtimeProperties.deadLetterMessageCount || 0)
+                    : (runtimeProperties.activeMessageCount || 0);
+
+                console.log('Starting deletion process:', {
+                    totalMessages,
+                    messagesToDelete: messageIds.length,
+                    batchSize
+                });
+
+                while (deletedCount < messageIds.length && processedMessageCount < totalMessages && attempt < maxAttempts) {
                     attempt++;
-                    console.log(`Attempt ${attempt} to delete messages`);
 
-                    // Receive a batch of messages
-                    const messages = await receiver.receiveMessages(32, { 
+                    // First peek messages to get sequence numbers
+                    const peekedMessages = await receiver.peekMessages(batchSize, { 
+                        fromSequenceNumber: lastSequenceNumber
+                    });
+
+                    if (peekedMessages.length === 0) {
+                        console.log('No more messages to process');
+                        break;
+                    }
+
+                    // Update last sequence number for next iteration
+                    lastSequenceNumber = peekedMessages.reduce((max, m) => 
+                        m.sequenceNumber?.greaterThan(max) ? m.sequenceNumber : max, 
+                        lastSequenceNumber
+                    );
+
+                    // Now receive messages for processing
+                    const messages = await receiver.receiveMessages(batchSize, { 
                         maxWaitTimeInMs: 5000 
                     });
 
-                    console.log(`Received ${messages.length} messages to process`);
-                    console.log('Message IDs in batch:', messages.map(m => m.messageId));
+                    processedMessageCount += messages.length;
 
                     // Process each message
                     for (const message of messages) {
-                        if (messageIds.includes(message.messageId)) {
+                      
+                        const matchingMessage = messageIds.find(m => 
+                            m.messageId === message.messageId && 
+                            m.sequenceNumber === message.sequenceNumber?.toString()
+                        );
+
+                       
+                        if (matchingMessage) {
                             try {
                                 await receiver.completeMessage(message);
                                 deletedCount++;
-                                console.log('Successfully deleted message:', message.messageId);
+                                console.log('Successfully deleted message:', {
+                                    messageId: message.messageId,
+                                    sequenceNumber: message.sequenceNumber?.toString(),
+                                    deletedCount
+                                });
                             } catch (error) {
-                                console.error('Error completing message:', message.messageId, error);
-                                // Abandon the message if we can't complete it
+                                console.error('Error completing message:', {
+                                    messageId: message.messageId,
+                                    sequenceNumber: message.sequenceNumber?.toString(),
+                                    error: error.message
+                                });
                                 try {
                                     await receiver.abandonMessage(message);
                                 } catch (abandonError) {
@@ -264,26 +314,26 @@ app.delete('/api/topics/:topicName/subscriptions/:subscriptionName/messages', as
                                 }
                             }
                         } else {
-                            // Abandon messages we don't want to delete
                             try {
-                                await receiver.abandonMessage(message);
+                                await receiver.abandonMessage(message);                               
                             } catch (abandonError) {
                                 console.error('Error abandoning message:', abandonError);
                             }
                         }
                     }
 
-                    if (deletedCount === messageIds.length) {
-                        break; // We've deleted all requested messages
-                    }
-
-                    // Add a delay between attempts
+                    // Add a small delay between batches
                     if (attempt < maxAttempts) {
                         await delay(1000);
                     }
                 }
 
-                console.log(`Completed deletion. Deleted ${deletedCount} out of ${messageIds.length} messages`);
+                console.log('Deletion summary:', {
+                    requestedCount: messageIds.length,
+                    deletedCount,
+                    attempts: attempt
+                });
+
                 res.json({ 
                     success: true, 
                     deletedCount,
@@ -526,7 +576,7 @@ app.post('/api/queues/:queueName/messages', async (req, res) => {
                 body: message.body,
                 enqueuedTime: message.enqueuedTimeUtc,
                 properties: message.applicationProperties,
-                sequenceNumber: message.sequenceNumber
+                sequenceNumber: message.sequenceNumber?.toString()
             }));
 
             res.json({ 

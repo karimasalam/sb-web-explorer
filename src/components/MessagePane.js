@@ -3,7 +3,7 @@ import { toast } from 'react-toastify';
 import { ConfirmDialog, confirmDialog } from 'primereact/confirmdialog';
 import './MessagePane.css';
 
-const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore, currentPage, totalPages, totalMessages, onRefresh }) => {
+const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore, currentPage, totalPages, totalMessages, onRefresh, onSubscriptionUpdate, onQueueUpdate }) => {
   const [selectedMessages, setSelectedMessages] = useState(new Set());
   const [selectedPreviewMessage, setSelectedPreviewMessage] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -18,11 +18,12 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
   const toggleMessageSelection = (message, event) => {
     event.stopPropagation();
     const newSelected = new Set(selectedMessages);
-    const messageId = message.sequenceNumber?.toString() || message.sequenceNumber;
-    if (newSelected.has(messageId)) {
-      newSelected.delete(messageId);
+    // Create a composite key using both messageId and sequenceNumber
+    const messageKey = `${message.messageId}:${message.sequenceNumber}`;
+    if (newSelected.has(messageKey)) {
+      newSelected.delete(messageKey);
     } else {
-      newSelected.add(messageId);
+      newSelected.add(messageKey);
     }
     setSelectedMessages(newSelected);
   };
@@ -61,12 +62,13 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
     const toastId = toast.loading(selectedOnly ? 'Deleting selected messages...' : 'Clearing all messages...');
 
     try {
-      console.log('Attempting to delete messages:', {
-        selectedOnly,
-        messageIds: selectedOnly ? Array.from(selectedMessages) : [],
-        topic: topic.name,
-        subscription: subscription.subscriptionName,
-        isDlq
+      // Convert selected message keys back to message objects
+      const selectedMessageIds = Array.from(selectedMessages).map(key => {
+        const [messageId, sequenceNumber] = key.split(':');
+        return { 
+          messageId, 
+          sequenceNumber // Keep as string, don't convert to number
+        };
       });
 
       const isQueue = topic.type === 'queue';
@@ -80,34 +82,55 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messageIds: selectedOnly ? Array.from(selectedMessages) : [],
+          messageIds: selectedOnly ? selectedMessageIds : [],
           isDlq
         }),
       });
 
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(`Error deleting messages: ${response.statusText}`);
+      }
 
-      if (response.ok) {
-        toast.update(toastId, {
-          render: data.message || 'Messages deleted successfully',
-          type: 'success',
-          isLoading: false,
-          autoClose: 3000
-        });
-        
-        // Refresh the list after deletion
-        onRefresh(topic.name, subscription.subscriptionName);
-        setSelectedMessages(new Set());
+      const result = await response.json();
+      toast.update(toastId, {
+        render: `Successfully deleted ${result.deletedCount} messages`,
+        type: 'success',
+        isLoading: false,
+        autoClose: 3000,
+      });
+
+      // Clear selected messages
+      setSelectedMessages(new Set());
+      
+      // Refresh the message list and count
+      await onRefresh(topic.name, subscription.subscriptionName);
+      
+      // Fetch updated subscription details to refresh counts
+      if (!isQueue) {
+        const detailsUrl = `http://localhost:3001/api/topics/${encodeURIComponent(topic.name)}/subscriptions/${encodeURIComponent(subscription.subscriptionName)}/details`;
+        const detailsResponse = await fetch(detailsUrl);
+        if (detailsResponse.ok) {
+          const details = await detailsResponse.json();
+          // Update the subscription in the parent component
+          onSubscriptionUpdate(details);
+        }
       } else {
-        throw new Error(data.error || 'Failed to delete messages');
+        // For queues, fetch queue details
+        const detailsUrl = `http://localhost:3001/api/queues/${encodeURIComponent(topic.name)}/details`;
+        const detailsResponse = await fetch(detailsUrl);
+        if (detailsResponse.ok) {
+          const details = await detailsResponse.json();
+          // Update the queue details in the parent component
+          onQueueUpdate(details);
+        }
       }
     } catch (error) {
-      console.error('Error clearing messages:', error);
+      console.error('Error deleting messages:', error);
       toast.update(toastId, {
-        render: error.message || 'Failed to delete messages',
+        render: `Error deleting messages: ${error.message}`,
         type: 'error',
         isLoading: false,
-        autoClose: 5000
+        autoClose: 5000,
       });
     } finally {
       setIsDeleting(false);
@@ -142,7 +165,10 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messageIds: selectedOnly ? Array.from(selectedMessages) : [],
+          messageIds: selectedOnly ? Array.from(selectedMessages).map(key => {
+            const [messageId, sequenceNumber] = key.split(':');
+            return { messageId, sequenceNumber: parseInt(sequenceNumber) };
+          }) : [],
           isDlq
         }),
       });
@@ -187,7 +213,7 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
 
   const filteredMessages = messages.filter(message => {
     if (!idFilter) return true;
-    const messageId = (message?.sequenceNumber?.toString() || message?.sequenceNumber || message?.id || '').toString();
+    const messageId = (message?.messageId || message?.sequenceNumber?.toString() || message?.id || '').toString();
     return messageId.toLowerCase().includes(idFilter.toLowerCase());
   });
 
@@ -251,17 +277,17 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
 
             return (
               <div
-                key={message.sequenceNumber || message.id}
-                className={`message-item ${selectedPreviewMessage?.sequenceNumber === message.sequenceNumber ? 'selected' : ''}`}
+                key={`${message.messageId}-${message.sequenceNumber}`}
+                className={`message-item ${selectedPreviewMessage?.messageId === message.messageId ? 'selected' : ''}`}
                 onClick={() => handleMessageClick(message)}
               >
                 <div className="message-header">
                   <input
                     type="checkbox"
-                    checked={selectedMessages.has(message.sequenceNumber?.toString() || message.sequenceNumber)}
+                    checked={selectedMessages.has(`${message.messageId}:${message.sequenceNumber}`)}
                     onChange={(e) => toggleMessageSelection(message, e)}
                   />
-                  <span className="message-id">ID: {message.sequenceNumber?.toString() || message.id}</span>
+                  <span className="message-id">ID: {message.messageId}</span>
                   <span className="message-time">{new Date(message.enqueuedTime).toLocaleString()}</span>
                 </div>
                 <div className="message-preview">
@@ -281,7 +307,7 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
             <div className="preview-content">
               <h3>Message Details</h3>
               <div className="message-metadata">
-                <p><strong>ID:</strong> {selectedPreviewMessage.sequenceNumber?.toString() || selectedPreviewMessage.id}</p>
+                <p><strong>ID:</strong> {selectedPreviewMessage.messageId}</p>
                 <p><strong>Published:</strong> {new Date(selectedPreviewMessage.enqueuedTime).toLocaleString()}</p>
               </div>
               <div className="message-data">
