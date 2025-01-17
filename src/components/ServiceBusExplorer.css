@@ -1,10 +1,16 @@
 .service-bus-explorer {
-  height: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .explorer-header {
+  flex: 0 0 auto;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -20,24 +26,29 @@
 }
 
 .explorer-container {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  height: 100vh;
   padding: 1rem;
+  overflow: hidden;
 }
 
 .explorer-content {
   flex: 1;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   padding: 1rem;
   background-color: #f8f9fa;
   border-radius: 8px;
+  overflow: hidden;
 }
 
 .explorer-layout {
+  flex: 1;
   display: flex;
   gap: 2rem;
-  height: calc(100% - 4rem);
+  overflow: hidden;
+  height: 100%;
 }
 
 .tree-section {
@@ -50,7 +61,7 @@
 }
 
 .subscriptions-section {
-  flex: 0 0 66.666%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   background: white;
@@ -523,6 +534,11 @@
 }
 
 /* DataTable Styles */
+.p-datatable {
+  flex: 1;
+  overflow: auto;
+}
+
 .p-datatable .p-datatable-header {
   background: transparent;
   border: none;
@@ -721,4 +737,9 @@
 
 .queue-details-table .p-datatable-tbody > tr:hover {
   background-color: #f8f9fa;
+}
+
+.p-datatable-wrapper {
+  overflow-y: auto !important;
+  max-height: calc(100vh - 200px) !important;
 }
