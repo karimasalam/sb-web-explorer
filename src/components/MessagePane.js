@@ -105,6 +105,11 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
       // Refresh the message list and count
       await onRefresh(topic.name, subscription.subscriptionName);
       
+      toast.success('Messages deleted successfully');
+      
+      // Close the message pane
+      onClose();
+      
       // Fetch updated subscription details to refresh counts
       if (!isQueue) {
         const detailsUrl = `http://localhost:3001/api/topics/${encodeURIComponent(topic.name)}/subscriptions/${encodeURIComponent(subscription.subscriptionName)}/details`;
@@ -188,6 +193,11 @@ const MessagePane = ({ messages, onClose, isDlq, topic, subscription, onLoadMore
           // Refresh the list after resubmission
           onRefresh(topic.name, subscription.subscriptionName);
           setSelectedMessages(new Set());
+          
+          toast.success('Messages resubmitted successfully');
+          
+          // Close the message pane
+          onClose();
         } else {
           throw new Error(data.error || 'Failed to resubmit some messages');
         }

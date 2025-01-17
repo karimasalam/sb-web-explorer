@@ -272,7 +272,6 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
           tooltip="Refresh"
           tooltipOptions={{ position: 'left' }}
           onClick={() => {
-            console.log('Refresh button clicked for:', subscription);
             handleRefreshSubscription(selectedTopic.name, subscription.subscriptionName);
           }}
         />
@@ -440,7 +439,6 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
                       dlqMessageCount: parseInt(details.dlqMessageCount),
                       messageCount: parseInt(details.messageCount)
                     };
-                    console.log('Updated subscription:', updatedSub);
                     return updatedSub;
                   }
                   return sub;
@@ -451,7 +449,6 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
           })
         };
 
-        console.log('Updated entities:', JSON.stringify(newEntities, null, 2));
         return newEntities;
       });
 
@@ -472,7 +469,6 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
               return sub;
             })
           };
-          console.log('Updated selected topic:', updatedTopic);
           return updatedTopic;
         }
         return prev;
@@ -490,7 +486,6 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
   const handleSubscriptionUpdate = (topicName, subscriptionName, details) => {
     console.log('Updating subscription details:', { topicName, subscriptionName, details });
     setEntities(prev => {
-      console.log('Current entities:', prev);
       const newEntities = { ...prev };
       const topic = newEntities.topics.find(t => t.name === topicName);
       if (topic) {
@@ -505,7 +500,6 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
           };
         }
       }
-      console.log('Updated entities:', newEntities);
       return newEntities;
     });
   };
@@ -640,7 +634,6 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
                     field="subscriptionName" 
                     header="Name" 
                     body={row => {
-                      console.log('Rendering subscription row:', row);
                       return row.subscriptionName;
                     }}
                   />
@@ -648,7 +641,6 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
                     field="activeMessageCount" 
                     header="Active Messages" 
                     body={row => {
-                      console.log('Active count for:', row.subscriptionName, row.activeMessageCount);
                       return row.activeMessageCount;
                     }}
                   />
@@ -656,7 +648,6 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
                     field="dlqMessageCount" 
                     header="DLQ Messages" 
                     body={row => {
-                      console.log('DLQ count for:', row.subscriptionName, row.dlqMessageCount);
                       return row.dlqMessageCount;
                     }}
                   />
@@ -664,7 +655,6 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
                     field="messageCount" 
                     header="Total Messages" 
                     body={row => {
-                      console.log('Total count for:', row.subscriptionName, row.messageCount);
                       return row.messageCount;
                     }}
                   />
