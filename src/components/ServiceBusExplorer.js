@@ -10,15 +10,7 @@ import { Button } from 'primereact/button';
 
 const SubscriptionActions = ({ topic, subscription, onViewMessages, onRefresh, onSubscriptionUpdate }) => {
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState(null);
   const [isDlq, setIsDlq] = useState(false);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
-  const [totalMessages, setTotalMessages] = useState(0);
-
-  const handleSubscriptionUpdate = (details) => {
-    onSubscriptionUpdate?.(topic.name, subscription.subscriptionName, details);
-  };
 
   const handleAction = async (action) => {
     setLoading(true);
@@ -187,7 +179,6 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
   const [entities, setEntities] = useState({ queues: [], topics: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedKeys, setSelectedKeys] = useState({});
   const [treeData, setTreeData] = useState([]);
   const [selectedSubscription, setSelectedSubscription] = useState(null);
   const [selectedTopic, setSelectedTopic] = useState(null);
@@ -279,33 +270,7 @@ const ServiceBusExplorer = ({ connectionString, onSignOut }) => {
     );
   };
 
-  const queueActionsTemplate = (queue) => {
-    return (
-      <div className="subscription-actions-cell">
-        <Button 
-          icon="pi pi-envelope" 
-          className="p-button-text p-button-sm" 
-          tooltip="Get Messages"
-          onClick={() => handleViewMessages({ ...queue, type: 'queue' }, { subscriptionName: queue.name }, false)}
-        />
-        <Button 
-          icon="pi pi-exclamation-triangle" 
-          className="p-button-text p-button-sm p-button-warning" 
-          tooltip="Get DLQ Messages"
-          tooltipOptions={{ position: 'left'}}
-          onClick={() => handleViewMessages({ ...queue, type: 'queue' }, { subscriptionName: queue.name }, true)}
-        />
-        <Button 
-          icon="pi pi-refresh" 
-          className="p-button-text p-button-sm" 
-          tooltip="Refresh"
-          tooltipOptions={{ position: 'left'}}
-          onClick={() => handleRefreshSubscription(queue.name, queue.name)}
-        />
-      </div>
-    );
-  };
-
+  
   const handleViewMessages = async (topic, subscription, isDlq = false) => {
     try {
       // Set initial state with empty messages array

@@ -382,7 +382,7 @@ app.delete('/api/topics/:topicName/subscriptions/:subscriptionName/messages', as
 // Resubmit messages from DLQ
 app.post('/api/topics/:topicName/subscriptions/:subscriptionName/resubmit', async (req, res) => {
     const { topicName, subscriptionName } = req.params;
-    const { messageIds, isDlq } = req.body;
+    const { messageIds } = req.body;
 
     try {
         const client = new ServiceBusClient(serviceBusConnection);
